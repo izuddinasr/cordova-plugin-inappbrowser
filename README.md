@@ -104,7 +104,7 @@ instance, or the system browser.
 
     - __hidden__: set to `yes` to create the browser and load the page, but not show it. The loadstop event fires when loading is complete. Omit or set to `no` (default) to have the browser open and load normally.
     - __beforeload__: set to enable the `beforeload` event to modify which pages are actually loaded in the browser. Accepted values are `get` to intercept only GET requests, `post` to intercept on POST requests or `yes` to intercept both GET & POST requests. Note that POST requests are not currently supported and will be ignored (if you set `beforeload=post` it will raise an error).
-    - __beforeclose__: set to enable the `beforeclose` event when close the browser. Accepted values is `yes` or `no` to trigger event. Default is set to `no`
+    - __beforeclose__: set to enable the `beforeclose` event when close the browser. Accepted values is `yes` or `no` to trigger the event. Default is set to `no`
     - __clearcache__: set to `yes` to have the browser's cookie cache cleared before the new window is opened
     - __clearsessioncache__: set to `yes` to have the session cookie cache cleared before the new window is opened
     - __closebuttoncaption__: set to a string to use as the close button's caption instead of a X. Note that you need to localize this value yourself.
