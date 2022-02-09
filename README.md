@@ -104,6 +104,7 @@ instance, or the system browser.
 
     - __hidden__: set to `yes` to create the browser and load the page, but not show it. The loadstop event fires when loading is complete. Omit or set to `no` (default) to have the browser open and load normally.
     - __beforeload__: set to enable the `beforeload` event to modify which pages are actually loaded in the browser. Accepted values are `get` to intercept only GET requests, `post` to intercept on POST requests or `yes` to intercept both GET & POST requests. Note that POST requests are not currently supported and will be ignored (if you set `beforeload=post` it will raise an error).
+    - __beforeclose__: set to enable the `beforeclose` event when close the browser. Accepted values is `yes` or `no` to trigger event. Default is set to `no`
     - __clearcache__: set to `yes` to have the browser's cookie cache cleared before the new window is opened
     - __clearsessioncache__: set to `yes` to have the session cookie cache cleared before the new window is opened
     - __closebuttoncaption__: set to a string to use as the close button's caption instead of a X. Note that you need to localize this value yourself.
@@ -221,6 +222,7 @@ The object returned from a call to `cordova.InAppBrowser.open` when the target i
   - __exit__: event fires when the `InAppBrowser` window is closed.
   - __beforeload__: event fires when the `InAppBrowser` decides whether to load an URL or not (only with option `beforeload` set).
   - __message__: event fires when the `InAppBrowser` receives a message posted from the page loaded inside the `InAppBrowser` Webview.
+  - __beforeclose__: event fires when the `InAppBrowser` window is when to close. Triggering before exit event.
 
 - __callback__: the function that executes when the event fires. The function is passed an `InAppBrowserEvent` object as a parameter.
 
@@ -247,6 +249,8 @@ function showHelp(url) {
     inAppBrowserRef.addEventListener('beforeload', beforeloadCallBack);
 
     inAppBrowserRef.addEventListener('message', messageCallBack);
+
+    inAppBrowserRef.addEventListener('beforeclose', beforecloseCallback);
 }
 
 function loadStartCallBack() {
@@ -319,6 +323,12 @@ function beforeloadCallBack(params, callback) {
 function messageCallBack(params){
     $('#status-message').text("message received: "+params.data.my_message);
 }
+
+function beforecloseCallback() {
+    
+}
+
+
 
 ```
 
