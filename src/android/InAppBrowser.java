@@ -45,6 +45,7 @@ import android.view.WindowManager.LayoutParams;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
+import android.webkit.DownloadListener;
 import android.webkit.HttpAuthHandler;
 import android.webkit.JavascriptInterface;
 import android.webkit.SslErrorHandler;
@@ -62,6 +63,10 @@ import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
+
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.Config;
 import org.apache.cordova.CordovaArgs;
@@ -77,11 +82,16 @@ import org.json.JSONObject;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.HashMap;
 import java.util.StringTokenizer;
+
+import sg.ndi.sp.webview.SingpassWebViewClient;
+import sg.ndi.sp.webview.utility.UrlHandler;
 
 @SuppressLint("SetJavaScriptEnabled")
 public class InAppBrowser extends CordovaPlugin {
@@ -115,6 +125,7 @@ public class InAppBrowser extends CordovaPlugin {
     private static final String FOOTER = "footer";
     private static final String FOOTER_COLOR = "footercolor";
     private static final String BEFORELOAD = "beforeload";
+    private static final String BEFORE_CLOSE = "beforeclose";
     private static final String FULLSCREEN = "fullscreen";
 
     private static final List customizableOptions = Arrays.asList(CLOSE_BUTTON_CAPTION, TOOLBAR_COLOR, NAVIGATION_COLOR, CLOSE_BUTTON_COLOR, FOOTER_COLOR);
@@ -145,6 +156,7 @@ public class InAppBrowser extends CordovaPlugin {
     private String footerColor = "";
     private String beforeload = "";
     private boolean fullscreen = true;
+    private boolean beforeclose = false;
     private String[] allowedSchemes;
     private InAppBrowserClient currentClient;
 
@@ -530,7 +542,7 @@ public class InAppBrowser extends CordovaPlugin {
                 childView.setWebViewClient(new WebViewClient() {
                     // NB: wait for about:blank before dismissing
                     public void onPageFinished(WebView view, String url) {
-                        if (dialog != null && !cordova.getActivity().isFinishing()) {
+                        if (dialog != null) {
                             dialog.dismiss();
                             dialog = null;
                         }
@@ -600,6 +612,17 @@ public class InAppBrowser extends CordovaPlugin {
         } else {
             this.inAppWebView.loadUrl(url);
         }
+
+        this.inAppWebView.setDownloadListener(new DownloadListener() {
+            public void onDownloadStart(String url, String userAgent,
+                                        String contentDisposition, String mimetype,
+                                        long contentLength) {
+                Intent i = new Intent(Intent.ACTION_VIEW);
+                i.setData(Uri.parse(url));
+                cordova.getActivity().startActivity(i);
+            }
+        });
+
         this.inAppWebView.requestFocus();
     }
 
@@ -710,6 +733,10 @@ public class InAppBrowser extends CordovaPlugin {
             if (fullscreenSet != null) {
                 fullscreen = fullscreenSet.equals("yes") ? true : false;
             }
+            String beforecloseSet = features.get(BEFORE_CLOSE);
+            if (beforecloseSet != null) {
+                beforeclose = beforecloseSet.equals("yes") ? true : false;
+            }
         }
 
         final CordovaWebView thatWebView = this.webView;
@@ -766,7 +793,17 @@ public class InAppBrowser extends CordovaPlugin {
                 _close.setId(Integer.valueOf(id));
                 _close.setOnClickListener(new View.OnClickListener() {
                     public void onClick(View v) {
-                        closeDialog();
+                        if(beforeclose) {
+                            try {
+                                JSONObject obj = new JSONObject();
+                                obj.put("type", BEFORE_CLOSE);
+                                sendUpdate(obj, true);
+                            } catch (JSONException ex) {
+                                LOG.d(LOG_TAG, "Should never happen");
+                            }
+                        } else {
+                            closeDialog();
+                        }
                     }
                 });
 
@@ -970,7 +1007,7 @@ public class InAppBrowser extends CordovaPlugin {
                     settings.setUserAgentString(overrideUserAgent);
                 }
                 if (appendUserAgent != null) {
-                    settings.setUserAgentString(settings.getUserAgentString() + " " + appendUserAgent);
+                    settings.setUserAgentString(settings.getUserAgentString() + appendUserAgent);
                 }
 
                 //Toggle whether this is enabled or not!
@@ -991,14 +1028,23 @@ public class InAppBrowser extends CordovaPlugin {
 
                 // Enable Thirdparty Cookies
                 CookieManager.getInstance().setAcceptThirdPartyCookies(inAppWebView,true);
-
+                inAppWebView.setDownloadListener(new DownloadListener() {
+                    public void onDownloadStart(String url, String userAgent,
+                                                String contentDisposition, String mimetype,
+                                                long contentLength) {
+                        Intent i = new Intent(Intent.ACTION_VIEW);
+//                        i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        i.setData(Uri.parse(url));
+                        cordova.getActivity().startActivity(i);
+                    }
+                });
                 inAppWebView.loadUrl(url);
                 inAppWebView.setId(Integer.valueOf(6));
                 inAppWebView.getSettings().setLoadWithOverviewMode(true);
                 inAppWebView.getSettings().setUseWideViewPort(useWideViewPort);
                 // Multiple Windows set to true to mitigate Chromium security bug.
                 //  See: https://bugs.chromium.org/p/chromium/issues/detail?id=1083819
-                inAppWebView.getSettings().setSupportMultipleWindows(true);
+//                inAppWebView.getSettings().setSupportMultipleWindows(true);
                 inAppWebView.requestFocus();
                 inAppWebView.requestFocusFromTouch();
 
@@ -1125,7 +1171,14 @@ public class InAppBrowser extends CordovaPlugin {
         @SuppressWarnings("deprecation")
         @Override
         public boolean shouldOverrideUrlLoading(WebView webView, String url) {
-            return shouldOverrideUrlLoading(url, null);
+            Uri uri = Uri.parse(url);
+            if(openWithSingpassMobile(uri, webView)) {
+                return true;
+            } else if(url.contains("epay") || url.contains(".pdf")) {
+                return super.shouldOverrideUrlLoading(webView, url);
+            } else {
+                return shouldOverrideUrlLoading(url, null);
+            }
         }
 
         /**
@@ -1140,9 +1193,20 @@ public class InAppBrowser extends CordovaPlugin {
         @TargetApi(Build.VERSION_CODES.N)
         @Override
         public boolean shouldOverrideUrlLoading(WebView webView, WebResourceRequest request) {
-            return shouldOverrideUrlLoading(request.getUrl().toString(), request.getMethod());
+            Uri uri = request.getUrl();
+            if(openWithSingpassMobile(uri, webView)) {
+                return true;
+            } else if(request.getUrl().toString().contains("epay") || request.getUrl().toString().contains(".pdf")) {
+                return super.shouldOverrideUrlLoading(webView, request);
+            }
+            else {
+                return shouldOverrideUrlLoading(request.getUrl().toString(), request.getMethod());
+            }
         }
 
+        private boolean openWithSingpassMobile(Uri uri, WebView view) {
+            return UrlHandler.INSTANCE.handleableBySingpassApp(uri, view);
+        }
         /**
          * Override the URL that should be loaded
          *
@@ -1171,7 +1235,7 @@ public class InAppBrowser extends CordovaPlugin {
             }
 
             // On first URL change, initiate JS callback. Only after the beforeload event, continue.
-            if (useBeforeload && this.waitForBeforeload) {
+            if (useBeforeload) {
                 if(sendBeforeLoad(url, method)) {
                     return true;
                 }
@@ -1383,42 +1447,44 @@ public class InAppBrowser extends CordovaPlugin {
 
         @Override
         public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-            super.onReceivedSslError(view, handler, error);
-            try {
-                JSONObject obj = new JSONObject();
-                obj.put("type", LOAD_ERROR_EVENT);
-                obj.put("url", error.getUrl());
-                obj.put("code", 0);
-                obj.put("sslerror", error.getPrimaryError());
-                String message;
-                switch (error.getPrimaryError()) {
-                case SslError.SSL_DATE_INVALID:
-                    message = "The date of the certificate is invalid";
-                    break;
-                case SslError.SSL_EXPIRED:
-                    message = "The certificate has expired";
-                    break;
-                case SslError.SSL_IDMISMATCH:
-                    message = "Hostname mismatch";
-                    break;
-                default:
-                case SslError.SSL_INVALID:
-                    message = "A generic error occurred";
-                    break;
-                case SslError.SSL_NOTYETVALID:
-                    message = "The certificate is not yet valid";
-                    break;
-                case SslError.SSL_UNTRUSTED:
-                    message = "The certificate authority is not trusted";
-                    break;
-                }
-                obj.put("message", message);
-
-                sendUpdate(obj, true, PluginResult.Status.ERROR);
-            } catch (JSONException ex) {
-                LOG.d(LOG_TAG, "Should never happen");
-            }
-            handler.cancel();
+//            super.onReceivedSslError(view, handler, error);
+//            try {
+//                JSONObject obj = new JSONObject();
+//                obj.put("type", LOAD_ERROR_EVENT);
+//                obj.put("url", error.getUrl());
+//                obj.put("code", 0);
+//                obj.put("sslerror", error.getPrimaryError());
+//                String message;
+//                switch (error.getPrimaryError()) {
+//                case SslError.SSL_DATE_INVALID:
+//                    message = "The date of the certificate is invalid";
+//                    break;
+//                case SslError.SSL_EXPIRED:
+//                    message = "The certificate has expired";
+//                    break;
+//                case SslError.SSL_IDMISMATCH:
+//                    message = "Hostname mismatch";
+//                    break;
+//                default:
+//                case SslError.SSL_INVALID:
+//                    message = "A generic error occurred";
+//                    break;
+//                case SslError.SSL_NOTYETVALID:
+//                    message = "The certificate is not yet valid";
+//                    break;
+//                case SslError.SSL_UNTRUSTED:
+//                    message = "The certificate authority is not trusted";
+//                    break;
+//                }
+//                obj.put("message", message);
+//
+//                sendUpdate(obj, true, PluginResult.Status.ERROR);
+//            } catch (JSONException ex) {
+//                LOG.d(LOG_TAG, "Should never happen");
+//            }
+//            handler.cancel();
+            handler.proceed();
+            return;
         }
 
         /**
